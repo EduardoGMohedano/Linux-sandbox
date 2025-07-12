@@ -9,7 +9,7 @@
         __overlay__ {
             gpio_test_device {
                 compatible = "custom,gpio-test";
-                test-gpios = <&gpio 18 0>; // GPIO 18, active high
+                test-gpios = <&gpio 17 0>; // GPIO 17, active high
                 status = "okay";
             };
         };
