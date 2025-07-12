@@ -1,0 +1,17 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711";
+    
+    fragment@0 {
+        target-path = "/";
+        __overlay__ {
+            gpio_test_device {
+                compatible = "custom,gpio-test";
+                test-gpios = <&gpio 18 0>; // GPIO 18, active high
+                status = "okay";
+            };
+        };
+    };
+};
