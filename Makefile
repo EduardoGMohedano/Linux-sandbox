@@ -1,4 +1,4 @@
-obj-m=gpio_driver_fs.o
+obj-m=gpio_driver_proc.o
 
 KDIR:=/lib/modules/$(shell uname -r)/build
 PWD:=$(shell pwd)
