@@ -244,7 +244,7 @@ static ssize_t gpio_write(struct file *file, const char __user *buffer, size_t l
 
     cmd[len] = '\0';
 
-    sscanf(cmd, %d, &value);
+    sscanf(cmd, "%d", &value);
     pr_info("You write %d to GPIO LED\n", value);
     gpiod_set_value(led_gpio, value);
     return len;
@@ -358,6 +358,7 @@ static void __exit gpio_driver_exit(void)
         }
     }
 
+    gpiod_set_value(led_gpio,0);
     gpiod_put(led_gpio);
 
     // Clean up device
