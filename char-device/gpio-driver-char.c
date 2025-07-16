@@ -111,7 +111,7 @@ static long gpio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                 return -EINVAL;
             }
             
-            gpiod_put(gpio_num);
+            //gpiod_put(gpio_num);
             gpio_dev.gpio_requested[gpio_num] = false;
             pr_info("GPIO %d freed\n", gpio_num);
             break;
@@ -204,7 +204,7 @@ static ssize_t gpio_read(struct file *file, char __user *buffer, size_t len, lof
         int added = snprintf(msg + msg_len, remaining, 
                             "GPIO %d: %s (value: %d)\n", 
                             i, 
-                            gpiod_get_direction(i) ? "INPUT" : "OUTPUT", 
+                            gpiod_get_direction(gpio_dev.led_gpio[i]) ? "INPUT" : "OUTPUT", 
                             value);
         
         if (added >= remaining) {
@@ -233,8 +233,7 @@ static ssize_t gpio_read(struct file *file, char __user *buffer, size_t len, lof
 static ssize_t gpio_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset)
 {
     char cmd[64];
-    int gpio_num, value;
-    int ret;
+    int value;
 
     if (len >= sizeof(cmd)) {
         return -EINVAL;
@@ -355,11 +354,9 @@ static void __exit gpio_driver_exit(void)
 
     // Free all requested GPIOs
     for (int i = 0; i < GPIO_COUNT; i++) {
-        if (gpio_dev.gpio_requested[i]) {
-            gpiod_set_value(gpio_dev.led_gpio[i], 0);
-            gpiod_put(gpio_dev.led_gpio[i]);
-            pr_info("Freed GPIO %d during cleanup\n", gpio_array[i]);
-        }
+        gpiod_set_value(gpio_dev.led_gpio[i], 0);
+        gpiod_put(gpio_dev.led_gpio[i]);
+    	pr_info("Freed GPIO %d during cleanup\n", gpio_array[i]);
     }
 
     // Clean up device

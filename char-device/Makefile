@@ -9,17 +9,11 @@ default:
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
-test: test_gpio
-	./test_gpio
-
-test_gpio: test_gpio.c
-	gcc -o test_gpio test_gpio.c
-
 install:
-	sudo insmod simplegpio.ko
+	sudo insmod gpio-driver-char.ko
 	sudo chmod 666 /dev/simplegpio
 
 uninstall:
-	sudo rmmod simplegpio
+	sudo rmmod gpio-driver-char
 
-.PHONY: default clean test install uninstall
+.PHONY: default clean install uninstall
