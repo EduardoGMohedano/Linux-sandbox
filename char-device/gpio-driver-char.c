@@ -11,9 +11,12 @@
 
 #define DEVICE_NAME     "simplegpio"
 #define CLASS_NAME      "gpio_class"
-#define GPIO_COUNT      1  // Support up to 32 GPIOs
+#define GPIO_COUNT       4  // Support up to 32 GPIOs
 
-#define LED_GPIO_PIN 	17  // GPIO pin for LED (change as needed)
+#define LED_GPIO_PIN_0 	17  // GPIO pin for LED (change as needed)
+#define LED_GPIO_PIN_1 	27  // GPIO pin for LED (change as needed)
+#define LED_GPIO_PIN_2 	22  // GPIO pin for LED (change as needed)
+#define LED_GPIO_PIN_3 	23  // GPIO pin for LED (change as needed)
 #define LED_GPIO_OFFSET 512  // GPIO pin for LED (change as needed)
 
 // IOCTL commands
@@ -32,11 +35,12 @@ struct gpio_device {
     struct cdev cdev;
     struct class *class;
     struct device *device;
+    struct gpio_desc *led_gpio[GPIO_COUNT]; //Real struct to manage GPIO
     bool gpio_requested[GPIO_COUNT];
 };
 
 static struct gpio_device gpio_dev;
-static struct gpio_desc *led_gpio = NULL; //Real struct to manage GPIO
+const int gpio_array[GPIO_COUNT] = { LED_GPIO_PIN_0+LED_GPIO_OFFSET, LED_GPIO_PIN_1+LED_GPIO_OFFSET, LED_GPIO_PIN_2+LED_GPIO_OFFSET, LED_GPIO_PIN_3+LED_GPIO_OFFSET };
 
 // File operations prototypes
 static int gpio_open(struct inode *inode, struct file *file);
@@ -246,7 +250,8 @@ static ssize_t gpio_write(struct file *file, const char __user *buffer, size_t l
 
     sscanf(cmd, "%d", &value);
     pr_info("You write %d to GPIO LED\n", value);
-    gpiod_set_value(led_gpio, value);
+    for(int i = 0; i < GPIO_COUNT; i++)
+        gpiod_set_value(gpio_dev.led_gpio[i], (value >> i) & 1 );
     return len;
 
     // Simple command parser: "gpio_num value" (e.g., "18 1" sets GPIO 18 to HIGH)
@@ -317,21 +322,23 @@ static int __init gpio_driver_init(void)
 
     pr_info("GPIO driver initialized successfully. Device: /dev/%s\n", DEVICE_NAME);
 
-    // First try the modern descriptor-based API
-    led_gpio = gpio_to_desc( LED_GPIO_PIN + LED_GPIO_OFFSET );
-    if (!led_gpio) {
-           printk(KERN_INFO "GPIO driver: Error getting pin\n");
-	   return -ENODEV;
+    // Using modern descriptor-based API
+    for(int i = 0; i < GPIO_COUNT; i++){
+        gpio_dev.led_gpio[i] = gpio_to_desc(gpio_array[i]);
+        if (!gpio_dev.led_gpio[i]){
+            printk(KERN_INFO "GPIO driver: Error getting pin\n");
+            return -ENODEV;
+        }
+        
+        // Set GPIO direction to output
+        ret = gpiod_direction_output(gpio_dev.led_gpio[i], 0);
+        if (ret) {
+            printk(KERN_ERR "GPIO driver: Failed to set GPIO direction\n");
+            return ret;
+        }
+        
+        gpiod_set_value(gpio_dev.led_gpio[i], 0);
     }
-    
-    // Set GPIO direction to output
-    ret = gpiod_direction_output(led_gpio, 0);
-    if (ret) {
-        printk(KERN_ERR "GPIO driver: Failed to set GPIO direction\n");
-        return ret;
-    }
-    
-    gpiod_set_value(led_gpio, 0);
 
     return 0;
 
@@ -353,13 +360,11 @@ static void __exit gpio_driver_exit(void)
     // Free all requested GPIOs
     for (i = 0; i < GPIO_COUNT; i++) {
         if (gpio_dev.gpio_requested[i]) {
-            // gpiod_put(i);
-            pr_info("Freed GPIO %d during cleanup\n", i);
+            gpiod_set_value(gpio_dev.led_gpio[i],0);
+            gpiod_put(gpio_dev.led_gpio[i]);
+            pr_info("Freed GPIO %d during cleanup\n", gpio_array[i]);
         }
     }
-
-    gpiod_set_value(led_gpio,0);
-    gpiod_put(led_gpio);
 
     // Clean up device
     device_destroy(gpio_dev.class, gpio_dev.dev_num);
