@@ -86,7 +86,7 @@ static ssize_t gpio_read(struct file *file, char __user *buffer, size_t len, lof
         return 0;
     
     value = gpiod_get_value(data->gpio);
-    read_len = snprintf(kbuf, sizeof(kbuf), "Val=%d", value);
+    read_len = snprintf(kbuf, sizeof(kbuf), "Val=%d\n", value);
 
     if(copy_to_user(buffer, kbuf, read_len))
         return -EFAULT;
