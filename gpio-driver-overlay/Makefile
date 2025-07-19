@@ -11,7 +11,7 @@ clean:
 
 install:
 	sudo insmod gpio-driver-overlay.ko
-# 	sudo chmod 666 /dev/simple-tft
+	sudo chmod 666 /dev/simplegpio
 
 uninstall:
 	sudo rmmod gpio-driver-overlay
