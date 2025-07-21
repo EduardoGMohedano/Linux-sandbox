@@ -135,7 +135,7 @@ static int tft_probe(struct spi_device *spi){
         return ret;
     }
 
-    data->rst_pin = devm_gpiod_get(&spi->dev, NULL, GPIOD_OUT_HIGH);
+    data->rst_pin = devm_gpiod_get(&spi->dev, "rst", GPIOD_OUT_HIGH);
     if (IS_ERR(data->rst_pin)) {
         ret = PTR_ERR(data->rst_pin);
         dev_err(&spi->dev, "Failed to get RST pin: %d\n", ret);
@@ -229,6 +229,14 @@ static void tft_remove(struct spi_device *spi){
     dev_info(&spi->dev, "Custom GPIO driver removed successfully\n");
 }
 
+/* SPI Device ID table - this is what you asked about */
+static const struct spi_device_id tft_spi_ids[] = {
+    { "raio8875", 0 },
+    { "simple-tft", 0 },
+    { /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(spi, tft_spi_ids);
+
 static const struct of_device_id tft_of_match[] = {
     { .compatible = "raio,raio8875", },
     { }
@@ -239,6 +247,7 @@ MODULE_DEVICE_TABLE(of, tft_of_match);
 static struct spi_driver tft_driver = {
     .probe = tft_probe,
     .remove = tft_remove,
+    .id_table = tft_spi_ids,
     .driver = {
         .name = DEVICE_NAME,
         .of_match_table = tft_of_match,
