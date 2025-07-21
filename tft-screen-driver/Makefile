@@ -17,9 +17,9 @@ uninstall:
 	sudo rmmod tft-screen-driver
 
 overlay:
-	dtc -I dts -O dtb -o tft-overlay.dtbo tft-overlay.dts 	
+	dtc -@ -I dts -O dtb -o tft-custom.dtbo tft-custom.dts 	
 
 overlay-install:
-	sudo cp tft-overlay.dtbo /boot/overlays/ 
+	sudo cp -f tft-custom.dtbo /boot/overlays 
 
 .PHONY: default clean install uninstall overlay overlay-install

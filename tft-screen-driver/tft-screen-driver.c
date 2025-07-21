@@ -230,7 +230,7 @@ static void tft_remove(struct spi_device *spi){
 }
 
 static const struct of_device_id tft_of_match[] = {
-    { .compatible = "custom,tft-screen", },
+    { .compatible = "raio,raio8875", },
     { }
 };
 

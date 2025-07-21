@@ -1,0 +1,36 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711";
+    
+    fragment@0 {
+        target = <&spi0>;
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+            
+            tft_display@0 {
+                compatible = "raio,raio8875";  // Change to your actual display
+                reg = <0>;
+                spi-max-frequency = <8000000>;
+                spi-mode = <3>;  // Most TFTs use mode 0, not 3
+                status = "okay";
+                
+                reset-gpios = <&gpio 23 1>;   // Active LOW (1), not HIGH (0)
+            };
+        };
+    };
+    
+    fragment@1 {
+        target = <&gpio>;
+        __overlay__ {
+            tft_pins: tft_pins {
+                brcm,pins = <23>;  // Reset and DC pins
+                brcm,function = <1>;   // GPIO output
+                brcm,pull = <0>;
+            };
+        };
+    };
+};
