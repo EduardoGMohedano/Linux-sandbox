@@ -18,14 +18,13 @@
             /* Custom device on SPI0 */
             custom_spi_device@0 {
                 compatible = "custom,tft-screen";
-		custom-driver = "tft-screen";
-                reg = <0>;  /* Chip select 0 */
-                spi-max-frequency = <10000000>;  /* 10 MHz clock */
-		spi-mode = <3>;
+                reg = <0>;  /* Chip select 0, which is GPIO 8 */
+                spi-max-frequency = <8000000>;  /* 8 MHz clock */
+		        spi-mode = <3>;
                 status = "okay";
                 
                 /* Additional properties for your driver */
-                reset-gpios = <&gpio 24 0>;  /* GPIO 24, active HIGH */
+                reset-gpios = <&gpio 23 0>;  /* GPIO 23, active HIGH */
             };
         };
     };
@@ -42,7 +41,7 @@
     fragment@2 {
         target = <&spi0_cs_pins>;
         __overlay__ {
-            brcm,pins = <8>;        /* CE0 pin which is GPIO8 */
+            brcm,pins = <8>;        /* Chip Enable 0 pin which is GPIO8 */
             brcm,function = <4>;    /* Alt function 0 for SPI */
             brcm,pull = <0>;        /* No pull resistor */
         };
