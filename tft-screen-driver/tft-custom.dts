@@ -14,15 +14,15 @@
             pinctrl-0 = <&spi0_pins>;
 
             tft_display: tft@0 {
-                compatible = "spidev";  // Para testing - cambiar después por tu driver
+                compatible = "raio,raio8875";
                 reg = <0>;
                 spi-max-frequency = <8000000>;
-                spi-cpha;
-                spi-cpol;
+                spi-cpha; // Clock phase = 1
+                spi-cpol; // Clock polarity = 1, SPI mode = 3
                 status = "okay";
                 
                 /* GPIO 23 as output for display control */
-                dc-gpios = <&gpio 23 0>;
+                rst-gpios = <&gpio 23 0>;
             };
         };
     };
