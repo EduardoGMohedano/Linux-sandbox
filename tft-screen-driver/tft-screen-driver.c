@@ -47,6 +47,130 @@ uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2);
 uint8_t spi_send_read_t(struct spi_device* spi, uint8_t data, uint8_t data2);
 /*TFT related functions*/
 
+/**********************
+*** TFT NORMAL PROTOTYPES
+**********************/
+void fillScreen(struct spi_device* spi, uint16_t color);
+void setCursor(struct spi_device* spi,uint16_t x, uint16_t y);
+void textTransparent(struct spi_device* spi,uint16_t foreColor);
+void textWrite(struct spi_device* spi,const char *buffer, uint16_t len);
+void textMode(struct spi_device* spi);
+void textEnlarge(struct spi_device* spi,uint8_t scale);
+void graphicsMode(struct spi_device* spi);
+
+
+void fillScreen(struct spi_device* spi,uint16_t color) {
+    // rectHelper(0, 0, _width - 1, _height - 1, color, true);
+
+    /* Set X */
+    int x = 0;
+    ra8875_write_register(spi, 0x91, x);
+    ra8875_write_register(spi, 0x92, x>>8);
+
+    /* Set Y */
+    int y = 0;
+    ra8875_write_register(spi, 0x93, y);
+    ra8875_write_register(spi, 0x94, y>>8);
+
+    /* Set X1 */
+    int w = 799;
+    ra8875_write_register(spi, 0x95, w);
+    ra8875_write_register(spi, 0x96, w>>8);
+
+    /* Set Y1 */
+    int h = 479;
+    ra8875_write_register(spi, 0x97, h);
+    ra8875_write_register(spi, 0x98, h>>8);
+
+    /* Set Color */
+    ra8875_write_register(spi, 0x63, (color & 0xf800) >> 11);
+    ra8875_write_register(spi, 0x64, (color & 0x07e0) >> 5);
+    ra8875_write_register(spi, 0x65, (color & 0x001f));
+    
+    /* Draw! */
+    ra8875_write_register(spi, 0x90, 0xB0);    
+    msleep(150);
+}
+
+void setCursor(struct spi_device*spi, uint16_t x, uint16_t y){
+    /* Set cursor location */
+    writeCommand(spi, 0x2A);
+    writeData(spi, x & 0xFF);
+    writeCommand(spi, 0x2B);
+    writeData(spi, x >> 8);
+    writeCommand(spi, 0x2C);
+    writeData(spi, y & 0xFF);
+    writeCommand(spi, 0x2D);
+    writeData(spi, y >> 8);
+}
+  
+void textTransparent(struct spi_device* spi, uint16_t foreColor) {
+    /* Set Fore Color */
+    writeCommand(spi, 0x63);
+    writeData(spi, (foreColor & 0xf800) >> 11);
+    writeCommand(spi, 0x64);
+    writeData(spi, (foreColor & 0x07e0) >> 5);
+    writeCommand(spi, 0x65);
+    writeData(spi, (foreColor & 0x001f));
+
+    /* Set transparency flag */
+    writeCommand(spi, 0x22);
+    uint8_t temp = readData(spi);
+    temp |= (1 << 6); // Set bit 6
+    writeData(spi, temp);
+}
+  
+void textWrite(struct spi_device* spi, const char *buffer, uint16_t len) {
+    if (len == 0)
+        len = sizeof(buffer);
+    writeCommand(spi, 0x02);
+    for (uint16_t i = 0; i < len; i++)
+        writeData(spi, buffer[i]);
+  
+    msleep(10);
+}
+  
+void textMode(struct spi_device* spi) {
+    /* Set text mode */
+    writeCommand(spi, 0x40);
+    uint8_t temp = readData(spi);
+    temp |= 0x80; // Set bit 7
+    writeData(spi, temp);
+  
+    /* Select the internal (ROM) font*/
+    writeCommand(spi, 0x21);
+    temp = readData(spi);
+    temp &= ~((1 << 7) | (1 << 5)); // Clear bits 7 and 5
+    writeData(spi, temp);
+}
+
+void textEnlarge(struct spi_device* spi, uint8_t scale) {
+    if (scale > 3)
+        scale = 3; // highest setting is 3
+  
+    /* Set font size flags */
+    writeCommand(spi, 0x22);
+    uint8_t temp = readData(spi);
+    temp &= ~(0xF); // Clears bits 0..3
+    temp |= scale << 2;
+    temp |= scale;
+  
+    writeData(spi, temp);
+    // _textScale = scale;
+}
+
+void graphicsMode(struct spi_device* spi) {
+    /* Set text mode */
+    writeCommand(spi, 0x40);
+    uint8_t temp = readData(spi);
+    temp &= 0x7F; // clear bit 7
+    writeData(spi, temp);
+}
+
+/*Native SPI functions*/
+
+
+
 uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2){
     u8 data_buff[2] = {data, data2};
     int ret;
@@ -60,17 +184,27 @@ uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2){
 }
 
 uint8_t spi_send_read_t(struct spi_device* spi, uint8_t data, uint8_t data2){
+    struct spi_transfer xfer = {};
+    struct spi_message msg;
     u8 data_buff[2] = {data, data2};
-    u8 data_rx[2] = {0,0};
+    u8 data_rx[2];
     int ret;
 
-    ret = spi_write_then_read(spi, data_buff, 2, data_rx, 2);
-    if( ret < 0 ){
+    xfer.tx_buf = data_buff;
+    xfer.rx_buf = data_rx;
+    xfer.len = 2;
+
+    spi_message_init(&msg);
+    spi_message_add_tail(&xfer, &msg);
+    ret = spi_sync(spi, &msg);
+
+    // ret = spi_write_then_read(spi, data_buff, 0, data_rx, 2);
+    if( ret != 0 ){
         pr_err("SPI transaction failed\n");
         return ret;
     }
 
-    pr_info("Received data: %02x %02x", data_rx[0], data_rx[1]);
+    pr_info("Received rx data: %02x %02x", data_rx[0], data_rx[1]);
     return data_rx[0];
 }
 
@@ -148,8 +282,9 @@ uint8_t ra8875_init(struct tft_data* data){
     msleep(100);
     
     if ( ra8875_read_register(data->spi, 0x00) != 0x75 ){
+        gpiod_put(data->rst_pin);
         pr_err("RA8875 screen was not found");
-        return false;
+        // return false;
     }
 
     pr_info("RA8875 screen found");
@@ -415,6 +550,25 @@ static int tft_probe(struct spi_device *spi){
     dev_info(&spi->dev, "Custom TFT driver probe completed successfully\n");
     dev_info(&spi->dev, "SPI max frequency: %dHz\n", spi->max_speed_hz);
     dev_info(&spi->dev, "Device created: /dev/%s \n", DEVICE_NAME);
+
+
+    /*text example*/
+    char text[] = "HELLO WORLD!";
+    textMode(spi);
+    msleep(20); /* let this time pass */
+    
+    int pos = 0;
+    while(pos < 20){
+      // lv_timer_handler(); /* let the GUI do its work */
+        fillScreen(spi,0x0000);
+        setCursor(spi, pos*5,pos*5);
+        textEnlarge(spi, 1);
+        textTransparent(spi, 0xFFFF - pos*1000);
+        textWrite(spi, text, sizeof(text));
+        msleep(150); /* let this time pass */
+        pos++;
+    }
+
     return 0;
 
 cleanup_class:
