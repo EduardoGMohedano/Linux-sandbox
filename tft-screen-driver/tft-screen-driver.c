@@ -9,6 +9,7 @@
 #include <linux/cdev.h>
 #include <linux/spi/spi.h>
 #include <linux/delay.h>
+#include "ra8875.h"
 
 #define DRIVER_NAME     "custom-tft-screen"
 #define DEVICE_NAME     "simple-tft"
@@ -28,6 +29,195 @@ static int tft_open(struct inode *inode, struct file *file);
 static int tft_release(struct inode *inode, struct file *file);
 static ssize_t tft_read(struct file *file, char __user *buffer, size_t len, loff_t *offset);
 static ssize_t tft_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset);
+
+/*TFT related functions*/
+uint8_t ra8875_init(struct tft_data* data);
+void ra8875_enable_display(struct spi_device* spi, bool enable);
+void ra8875_configure_clocks( struct spi_device* spi, bool high_speed);
+void ra8875_set_window(struct spi_device* spi, uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye);
+void configurePWM(struct spi_device* spi, uint8_t pwm_pin, bool enable, uint8_t pwm_clock);
+void PWMout(struct spi_device* spi, uint8_t pwm_pin, uint8_t duty_cycle);
+
+uint8_t ra8875_read_register(struct spi_device* spi, uint8_t reg);
+void ra8875_write_register(struct spi_device* spi, uint8_t reg, uint8_t value);
+void writeCommand(struct spi_device* spi ,uint8_t d);
+uint8_t readData(struct spi_device* spi);
+void writeData(struct spi_device* spi, uint8_t d);
+uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2);
+uint8_t spi_send_read_t(struct spi_device* spi, uint8_t data, uint8_t data2);
+/*TFT related functions*/
+
+uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2){
+    u8 data_buff[2] = {data, data2};
+    int ret;
+
+    ret = spi_write(spi, data_buff, 2);
+    if( ret < 0 ){
+        pr_err("SPI transaction failed\n");
+        return ret;
+    }
+    return 0;
+}
+
+uint8_t spi_send_read_t(struct spi_device* spi, uint8_t data, uint8_t data2){
+    u8 data_buff[2] = {data, data2};
+    u8 data_rx[2] = {0,0};
+    int ret;
+
+    ret = spi_write_then_read(spi, data_buff, 2, data_rx, 2);
+    if( ret < 0 ){
+        pr_err("SPI transaction failed\n");
+        return ret;
+    }
+
+    pr_info("Received data: %02x %02x", data_rx[0], data_rx[1]);
+    return data_rx[0];
+}
+
+void writeCommand(struct spi_device* spi, uint8_t d){
+    spi_send_t(spi, (uint8_t)RA8875_MODE_CMD_WRITE, d);
+}
+
+uint8_t readData(struct spi_device* spi){
+    uint8_t val = 0;
+    val = spi_send_read_t(spi, (uint8_t)RA8875_MODE_DATA_READ, 0);
+    return val;
+}
+
+void writeData(struct spi_device* spi, uint8_t d){
+    spi_send_t(spi, (uint8_t)RA8875_MODE_DATA_WRITE, d);
+}
+
+uint8_t ra8875_read_register(struct spi_device* spi, uint8_t reg){
+    writeCommand(spi, reg);
+    uint8_t rcv_buf = readData(spi);
+    return rcv_buf;
+}
+
+void ra8875_write_register(struct spi_device* spi, uint8_t reg, uint8_t value){
+    writeCommand(spi, reg);
+    writeData(spi, value);
+}
+
+void configurePWM(struct spi_device* spi, uint8_t pwm_pin, bool enable, uint8_t pwm_clock){
+    uint8_t register_pin = (pwm_pin == PWM_PIN_1) ? RA8875_REG_PC1R : RA8875_REG_PC2R;
+    if( enable ){
+        ra8875_write_register(spi, register_pin, 0x80 | (pwm_clock & 0xF));
+    }
+    else{
+        ra8875_write_register(spi, register_pin, 0x00 | (pwm_clock & 0xF));
+    }
+}
+
+void PWMout(struct spi_device* spi, uint8_t pwm_pin, uint8_t duty_cycle){
+    uint8_t register_pin = (pwm_pin == PWM_PIN_1) ? RA8875_REG_P1DCR : RA8875_REG_P2DCR;
+    
+    ra8875_write_register(spi, register_pin, duty_cycle);
+}
+
+uint8_t ra8875_init(struct tft_data* data){
+    struct {
+        uint8_t cmd;                                   // Register address of command
+        uint8_t data;                                  // Value to write to register
+    } init_cmds[] = {
+        {RA8875_REG_SYSR,   SYSR_VAL},                 // System Configuration Register (SYSR)
+        {RA8875_REG_PCSR,   PCSR_VAL},
+        {RA8875_REG_HDWR,   HDWR_VAL},                 // LCD Horizontal Display Width Register (HDWR)
+        {RA8875_REG_HNDFTR, HNDFTR_VAL},               // Horizontal Non-Display Period Fine Tuning Option Register (HNDFTR)
+        {RA8875_REG_HNDR,   HNDR_VAL},                 // Horizontal Non-Display Period Register (HNDR) TODO CORRECT FORMULA COULD BE 3 BY DEFA
+        {RA8875_REG_HSTR,   HSTR_VAL},                 // HSYNC Start Position Register (HSTR)
+        {RA8875_REG_HPWR,   HPWR_VAL},                 // HSYNC Pulse Width Register (HPWR)
+        {RA8875_REG_VDHR0,  VDHR_VAL & 0x0FF},         // LCD Vertical Display Height Register (VDHR0)
+        {RA8875_REG_VDHR1,  VDHR_VAL >> 8},            // LCD Vertical Display Height Register0 (VDHR1)
+        {RA8875_REG_VNDR0,  VNDR_VAL & 0x0FF},         // LCD Vertical Non-Display Period Register (VNDR0)
+        {RA8875_REG_VNDR1,  VNDR_VAL >> 8},            // LCD Vertical Non-Display Period Register (VNDR1)
+        {RA8875_REG_VSTR0,  VSTR_VAL & 0x0FF},         // VSYNC Start Position Register (VSTR0)
+        {RA8875_REG_VSTR1,  VSTR_VAL >> 8},            // VSYNC Start Position Register (VSTR1)
+        {RA8875_REG_VPWR,   VPWR_VAL}                 // VSYNC Pulse Width Register (VPWR)
+    };
+    
+    uint8_t init_cmd_size  = sizeof(init_cmds)/sizeof(init_cmds[0]);
+
+    pr_info("Initializing RA8875...");
+    
+    // Reset the RA8875
+    pr_info("Sending reset sequence on pin...");
+    gpiod_set_value(data->rst_pin, 0);
+    msleep(100);
+    gpiod_set_value(data->rst_pin, 1);
+    msleep(100);
+    
+    if ( ra8875_read_register(data->spi, 0x00) != 0x75 ){
+        pr_err("RA8875 screen was not found");
+        return false;
+    }
+
+    pr_info("RA8875 screen found");
+    
+    //Initialize PLL clocks
+    ra8875_configure_clocks(data->spi, true);
+
+    // Send all the commands to init the display
+    for (uint8_t i = 0; i < init_cmd_size; i++) {
+        ra8875_write_register(data->spi, init_cmds[i].cmd, init_cmds[i].data);
+    }
+
+    //Set window area for the first time
+    ra8875_set_window(data->spi, 0, LV_HOR_RES_MAX, 0, LV_VER_RES_MAX);
+
+    // Perform a memory clear (wait maximum of 100 ticks) //could just be a delay 
+    ra8875_write_register(data->spi, RA8875_REG_MCLR, 0x80);
+    for(uint8_t i = 100; i != 0; i--) {
+        if ((ra8875_read_register(data->spi, RA8875_REG_MCLR) & 0x80) == 0x00) {
+            pr_info("Waiting for Memory clear to be finished...");
+            break;
+        }
+        msleep(10);
+    }
+    
+    msleep(250);
+
+    // Enable the display
+    ra8875_enable_display(data->spi, true);
+
+#ifdef BACKLIGHT_INTERNAL
+    ra8875_write_register(data->spi, RA8875_GPIOX, 1); //Enable pin attached to GPIOX as output to enable PWM
+    configurePWM(data->spi, PWM_PIN_1, true, RA8875_PWM_CLK_DIV32);
+    PWMout( data->spi, PWM_PIN_1, 255);
+#endif
+
+    return true;
+}
+
+void ra8875_enable_display(struct spi_device* spi, bool enable){
+    pr_info("Enabling display \n");
+    uint8_t val = enable ? 0x80 : 0x00;
+    ra8875_write_register(spi, RA8875_REG_PWRR, val);            // Power and Display Control Register (PWRR)
+}
+
+void ra8875_configure_clocks(struct spi_device* spi, bool high_speed){
+    uint8_t val;
+    
+    val = high_speed ? ((CONFIG_LV_DISP_RA8875_PLLDIVM << 7) | CONFIG_LV_DISP_RA8875_PLLDIVN) : 0x07;
+    ra8875_write_register(spi, RA8875_REG_PLLC1, val);           // PLL Control Register 1 (PLLC1)
+    msleep(5);
+    
+    val = high_speed ? CONFIG_LV_DISP_RA8875_PLLDIVK : 0x03;
+    ra8875_write_register(spi, RA8875_REG_PLLC2, val);           // PLL Control Register 2 (PLLC2)
+    msleep(5);
+}
+
+//Set a drawing window area
+void ra8875_set_window(struct spi_device* spi, uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye){
+    ra8875_write_register(spi, RA8875_REG_HSAW0, (uint8_t)(xs & 0x00FF)); // Horizontal Start Point 0 of Active Window (HSAW0)
+    ra8875_write_register(spi, RA8875_REG_HSAW1, (uint8_t)(xs >> 8));    // Horizontal Start Point 1 of Active Window (HSAW1)
+    ra8875_write_register(spi, RA8875_REG_VSAW0, (uint8_t)(ys & 0x00FF)); // Vertical Start Point 0 of Active Window (VSAW0)
+    ra8875_write_register(spi, RA8875_REG_VSAW1, (uint8_t)(ys >> 8));    // Vertical Start Point 1 of Active Window (VSAW1)
+    ra8875_write_register(spi, RA8875_REG_HEAW0, (uint8_t)(xe & 0x00FF)); // Horizontal End Point 0 of Active Window (HEAW0)
+    ra8875_write_register(spi, RA8875_REG_HEAW1, (uint8_t)(xe >> 8));    // Horizontal End Point 1 of Active Window (HEAW1)
+    ra8875_write_register(spi, RA8875_REG_VEAW0, (uint8_t)(ye & 0x00FF)); // Vertical End Point of Active Window 0 (VEAW0)
+    ra8875_write_register(spi, RA8875_REG_VEAW1, (uint8_t)(ye >> 8));    // Vertical End Point of Active Window 1 (VEAW1)
+}
 
 // File operations structure
 static struct file_operations tft_fops = {
@@ -181,8 +371,10 @@ static int tft_probe(struct spi_device *spi){
     tft_hardware_reset(data);
 
     //Command sequence to init TFT
-
-
+    if(!ra8875_init(data)){
+        pr_err("Error on the init of the TFT screen\n");
+        return -1;
+    }
 
     // Allocate device number (device, minor_number, number of devoces, name)
     ret = alloc_chrdev_region(&data->dev_num, 0, 1, DEVICE_NAME);
