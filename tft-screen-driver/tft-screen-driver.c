@@ -39,9 +39,17 @@ static struct file_operations tft_fops = {
 };
 
 static int tft_open(struct inode *inode, struct file *file){
-    struct tft_data* data = container_of(inode->i_cdev, struct tft_data, cdev);  
-    file->private_data = data;
     pr_info("TFT device opened\n");
+
+    struct tft_data* data;
+    data = container_of(inode->i_cdev, struct tft_data, cdev);  
+
+    if(!data->spi){
+        pr_err("SPI device is NULL\n");
+        return -ENODEV;
+    }
+    
+    file->private_data = data;
     return 0;
 }
 
@@ -81,21 +89,41 @@ static ssize_t tft_read(struct file *file, char __user *buffer, size_t len, loff
 
 static ssize_t tft_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset)
 {
+    struct tft_data* data = NULL;
     char cmd[64];
-    int value;
+    u8 value;
+    int ret;
 
     if (len >= sizeof(cmd)) {
         return -EINVAL;
     }
-
-    if (copy_from_user(cmd, buffer, len)) {
-        return -EFAULT;
+    
+    data = (struct tft_data*)file->private_data;
+    if(!data){
+        pr_err("Driver structure is NULL\n");
+        return -ENODEV;
+    }
+    
+    if(!data->spi){
+        pr_err("SPI device is NULL\n");
+        return -ENODEV;
     }
 
-    cmd[len] = '\0';
+    if( len > 0 ){
 
-    sscanf(cmd, "%d", &value);
-    pr_info("You write %d to GPIO LED\n", value);
+        if (copy_from_user(&value, buffer, 1)) {
+            return -EFAULT;
+        }
+        
+        pr_info("Writing %c to SPI bus\n", value);
+       
+        ret = spi_write(data->spi, &value, 1);
+        if ( ret < 0){
+            pr_err("Something failed during SPI send transaction\n");
+            return ret;
+        }
+    }
+
     return len;
 }
 
