@@ -325,7 +325,7 @@ uint8_t ra8875_init(struct tft_data* data){
 }
 
 void ra8875_enable_display(struct spi_device* spi, bool enable){
-    pr_info("Enabling display \n");
+    pr_info("%s display \n", enable ? "Enabling" : "Disabling" );
     uint8_t val = enable ? 0x80 : 0x00;
     ra8875_write_register(spi, RA8875_REG_PWRR, val);            // Power and Display Control Register (PWRR)
 }
@@ -577,9 +577,13 @@ cleanup_chrdev:
 static void tft_remove(struct spi_device *spi){
     struct tft_data* data = spi_get_drvdata(spi);
     dev_info(&spi->dev, "Custom TFT driver remove started\n");
+    
+    ra8875_enable_display(data->spi, false);
 
     /* Set GPIO to safe state before removing */
     if (data->rst_pin) {
+        gpiod_set_value(data->rst_pin, 0);
+        msleep(100);
         gpiod_set_value(data->rst_pin, 1);
         dev_info(&spi->dev, "GPIO set to high before removal\n");
     }
