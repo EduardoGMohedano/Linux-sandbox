@@ -415,8 +415,6 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
 {
     struct tft_data* data = NULL;
     char cmd[64];
-    u8 value;
-    int ret;
 
     if (len >= sizeof(cmd)) {
         return -EINVAL;
@@ -434,18 +432,30 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
     }
 
     if( len > 0 ){
-
-        if (copy_from_user(&value, buffer, 1)) {
+        if (copy_from_user(cmd, buffer, len)) {
             return -EFAULT;
         }
+        cmd[len] = '\0';
+        pr_info("Writing %s to TFT screen\n", cmd);
+
+        /*text example*/
+        // char text[] = "HELLO WORLD!";
+        textMode(data->spi);
+        msleep(20); /* let this time pass */
         
-        pr_info("Writing %c to SPI bus\n", value);
+        int screen_position = 10;
+        fillScreen(data->spi, 0x0000);
+        setCursor(data->spi, screen_position*5,screen_position*5);
+        textEnlarge(data->spi, 2);
+        textTransparent(data->spi, 0xFFFF - screen_position*1000);
+        textWrite(data->spi, cmd, sizeof(cmd));
+        msleep(150); /* let this time pass */
        
-        ret = spi_write(data->spi, &value, 1);
+        /* ret = spi_write(data->spi, &value, 1);
         if ( ret < 0){
             pr_err("Something failed during SPI send transaction\n");
             return ret;
-        }
+        }*/
     }
 
     return len;
@@ -542,24 +552,6 @@ static int tft_probe(struct spi_device *spi){
     dev_info(&spi->dev, "Custom TFT driver probe completed successfully\n");
     dev_info(&spi->dev, "SPI max frequency: %dHz\n", spi->max_speed_hz);
     dev_info(&spi->dev, "Device created: /dev/%s \n", DEVICE_NAME);
-
-
-    /*text example*/
-    char text[] = "HELLO WORLD!";
-    textMode(spi);
-    msleep(20); /* let this time pass */
-    
-    int pos = 0;
-    while(pos < 20){
-      // lv_timer_handler(); /* let the GUI do its work */
-        fillScreen(spi,0x0000);
-        setCursor(spi, pos*5,pos*5);
-        textEnlarge(spi, 1);
-        textTransparent(spi, 0xFFFF - pos*1000);
-        textWrite(spi, text, sizeof(text));
-        msleep(150); /* let this time pass */
-        pos++;
-    }
 
     return 0;
 

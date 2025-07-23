@@ -16,7 +16,7 @@
 
 //Screen tft clock configurations
 #define CONFIG_LV_DISP_RA8875_PLLDIVM   0 // ranges between 0 - 1
-#define CONFIG_LV_DISP_RA8875_PLLDIVN   12 //  18 works on esp32, ranges between 0 - 31
+#define CONFIG_LV_DISP_RA8875_PLLDIVN   18 //  18 works on esp32, ranges between 0 - 31
 #define CONFIG_LV_DISP_RA8875_PLLDIVK   2
 #define CONFIG_BACKLIGHT_INTERNAL       1
 
