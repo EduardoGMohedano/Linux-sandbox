@@ -17,8 +17,6 @@
                 compatible = "raio,raio8875";
                 reg = <0>;
                 spi-max-frequency = <8000000>;
-                spi-cpha; // Clock phase = 1
-                spi-cpol; // Clock polarity = 1, SPI mode = 3
                 status = "okay";
                 
                 /* GPIO 23 as output for display control */
@@ -31,7 +29,7 @@
         target = <&gpio>;
         __overlay__ {
             spi0_pins: spi0_pins {
-                brcm,pins = <9 10 11>;
+                brcm,pins = <8 9 10 11>;
                 brcm,function = <4>; /* ALT0 */
                 brcm,pull = <0>; /* No pull */
             };
