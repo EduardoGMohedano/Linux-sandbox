@@ -12,11 +12,11 @@
 #define LV_HOR_RES_MAX          800
 #define LV_VER_RES_MAX          480
 
-#define SPI_TFT_CLOCK_SPEED_HZ    (6000*1000)
+#define SPI_TFT_CLOCK_SPEED_HZ    (100*1000)
 
 //Screen tft clock configurations
 #define CONFIG_LV_DISP_RA8875_PLLDIVM   0 // ranges between 0 - 1
-#define CONFIG_LV_DISP_RA8875_PLLDIVN   12 // ranges between 0 - 31
+#define CONFIG_LV_DISP_RA8875_PLLDIVN   12 //  18 works on esp32, ranges between 0 - 31
 #define CONFIG_LV_DISP_RA8875_PLLDIVK   2
 #define CONFIG_BACKLIGHT_INTERNAL       1
 

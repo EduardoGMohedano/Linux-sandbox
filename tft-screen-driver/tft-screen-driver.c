@@ -170,7 +170,6 @@ void graphicsMode(struct spi_device* spi) {
 /*Native SPI functions*/
 
 
-
 uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2){
     u8 data_buff[2] = {data, data2};
     int ret;
