@@ -472,7 +472,7 @@ static int tft_probe(struct spi_device *spi){
     //Set SPI transaction settings
     spi->mode = SPI_MODE_3;
     spi->mode &= ~SPI_CS_HIGH;
-    spi->max_speed_hz = 6000000;
+    spi->max_speed_hz = SPI_TFT_CLOCK_SPEED_HZ;
     spi->bits_per_word = 8;
     ret = spi_setup(spi);
 
