@@ -44,7 +44,7 @@ void writeCommand(struct spi_device* spi ,uint8_t d);
 uint8_t readData(struct spi_device* spi);
 void writeData(struct spi_device* spi, uint8_t d);
 uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2);
-uint8_t spi_send_read_t(struct spi_device* spi, uint8_t data, uint8_t data2);
+uint8_t spi_send_read_t(struct spi_device* spi, u8 data, u8 data2);
 /*TFT related functions*/
 
 /**********************
@@ -183,11 +183,11 @@ uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2){
     return 0;
 }
 
-uint8_t spi_send_read_t(struct spi_device* spi, uint8_t data, uint8_t data2){
+uint8_t spi_send_read_t(struct spi_device* spi, u8 data, u8 data2){
     struct spi_transfer xfer = {};
     struct spi_message msg;
     u8 data_buff[2] = {data, data2};
-    u8 data_rx[2];
+    u8 data_rx[2] = {0,0};
     int ret;
 
     xfer.tx_buf = data_buff;
@@ -214,7 +214,7 @@ void writeCommand(struct spi_device* spi, uint8_t d){
 
 uint8_t readData(struct spi_device* spi){
     uint8_t val = 0;
-    val = spi_send_read_t(spi, (uint8_t)RA8875_MODE_DATA_READ, 0);
+    val = spi_send_read_t(spi, (u8)RA8875_MODE_DATA_READ, 0);
     return val;
 }
 
@@ -480,6 +480,7 @@ static int tft_probe(struct spi_device *spi){
 
     //Set SPI transaction settings
     spi->mode = SPI_MODE_3;
+    spi->mode &= ~SPI_CS_HIGH;
     spi->bits_per_word = 8;
     ret = spi_setup(spi);
 
@@ -487,6 +488,8 @@ static int tft_probe(struct spi_device *spi){
         dev_err(&spi->dev, "SPI setup failed: %d\n", ret);
         return ret;
     }
+
+    dev_info(&spi->dev, "SPI Mode: %d, Max Speed: %d Hz\n", spi->mode, spi->max_speed_hz);
 
     data->rst_pin = devm_gpiod_get(&spi->dev, "rst", GPIOD_OUT_HIGH);
     if (IS_ERR(data->rst_pin)) {
