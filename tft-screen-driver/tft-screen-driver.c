@@ -205,7 +205,7 @@ uint8_t spi_send_read_t(struct spi_device* spi, u8 data, u8 data2){
     }
 
     pr_info("Received rx data: %02x %02x", data_rx[0], data_rx[1]);
-    return data_rx[0];
+    return data_rx[1];
 }
 
 void writeCommand(struct spi_device* spi, uint8_t d){
@@ -279,12 +279,12 @@ uint8_t ra8875_init(struct tft_data* data){
     gpiod_set_value(data->rst_pin, 0);
     msleep(100);
     gpiod_set_value(data->rst_pin, 1);
-    msleep(100);
+    msleep(10);
     
     if ( ra8875_read_register(data->spi, 0x00) != 0x75 ){
         gpiod_put(data->rst_pin);
         pr_err("RA8875 screen was not found");
-        // return false;
+        return true;
     }
 
     pr_info("RA8875 screen found");
@@ -452,15 +452,6 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
     return len;
 }
 
-static void tft_hardware_reset(struct tft_data* tft){
-    if(tft->rst_pin){
-        gpiod_set_value(tft->rst_pin, 0);
-        msleep(100);
-        gpiod_set_value(tft->rst_pin, 1);
-        msleep(100);
-    }
-}
-
 // In probe function
 static int tft_probe(struct spi_device *spi){
     struct tft_data* data;
@@ -481,6 +472,7 @@ static int tft_probe(struct spi_device *spi){
     //Set SPI transaction settings
     spi->mode = SPI_MODE_3;
     spi->mode &= ~SPI_CS_HIGH;
+    spi->max_speed_hz = 6000000;
     spi->bits_per_word = 8;
     ret = spi_setup(spi);
 
@@ -489,6 +481,7 @@ static int tft_probe(struct spi_device *spi){
         return ret;
     }
 
+    spi->mode &= ~SPI_CS_HIGH;
     dev_info(&spi->dev, "SPI Mode: %d, Max Speed: %d Hz\n", spi->mode, spi->max_speed_hz);
 
     data->rst_pin = devm_gpiod_get(&spi->dev, "rst", GPIOD_OUT_HIGH);
@@ -504,9 +497,6 @@ static int tft_probe(struct spi_device *spi){
         dev_err(&spi->dev, "Failed to set GPIO direction: %d\n", ret);
         return ret;
     }
-
-    //Perform device reset
-    tft_hardware_reset(data);
 
     //Command sequence to init TFT
     if(!ra8875_init(data)){
