@@ -15,6 +15,22 @@
 #define DEVICE_NAME     "simple-tft"
 #define CLASS_NAME      "tft_class"
 
+/* Color structure for RGB values */
+struct tft_color {
+    unsigned char red;
+    unsigned char green;
+    unsigned char blue;
+};
+
+#define TFT_STRUCT_TO_U16(color)    ( (((u16)color.red&31) << 11) | (((u16)color.green&63) << 5) | (((u16)color.blue&31) << 0) )
+
+//ioctl commands definition
+#define TFT_IOC_MAGIC         'T'
+#define TFT_SET_TEXT_COLOR    _IOW(TFT_IOC_MAGIC, 1, struct tft_color)
+#define TFT_GET_TEXT_COLOR    _IOR(TFT_IOC_MAGIC, 2, struct tft_color)
+#define TFT_SET_BG_COLOR      _IOW(TFT_IOC_MAGIC, 3, struct tft_color)
+#define TFT_RESET_COLORS      _IO(TFT_IOC_MAGIC, 4)
+
 struct tft_data{
     dev_t dev_num;
     struct cdev cdev;
@@ -24,11 +40,16 @@ struct tft_data{
     struct gpio_desc *rst_pin; //Real struct to manage GPIO
 };
 
+/* Driver state */
+static struct tft_color current_text_color = {0xFF, 0xFF, 0xFF}; /* Default white */
+static struct tft_color current_bg_color = {0x00, 0x00, 0x00};   /* Default black */
+
 // File operations prototypes
 static int tft_open(struct inode *inode, struct file *file);
 static int tft_release(struct inode *inode, struct file *file);
 static ssize_t tft_read(struct file *file, char __user *buffer, size_t len, loff_t *offset);
 static ssize_t tft_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset);
+static long tft_ioctl(struct file*, unsigned int, unsigned long);
 
 /*TFT related functions*/
 uint8_t ra8875_init(struct tft_data* data);
@@ -360,6 +381,7 @@ static struct file_operations tft_fops = {
     .release = tft_release,
     .read = tft_read,
     .write = tft_write,
+    .unlocked_ioctl = tft_ioctl,
 };
 
 static int tft_open(struct inode *inode, struct file *file){
@@ -436,6 +458,7 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
             return -EFAULT;
         }
         cmd[len] = '\0';
+        u16 curr_color = TFT_STRUCT_TO_U16(current_text_color);
         pr_info("Writing %s to TFT screen\n", cmd);
 
         /*text example*/
@@ -447,7 +470,7 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
         fillScreen(data->spi, 0x0000);
         setCursor(data->spi, screen_position*5,screen_position*5);
         textEnlarge(data->spi, 2);
-        textTransparent(data->spi, 0xFFFF - screen_position*1000);
+        textTransparent(data->spi, curr_color);
         textWrite(data->spi, cmd, sizeof(cmd));
         msleep(150); /* let this time pass */
        
@@ -459,6 +482,60 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
     }
 
     return len;
+}
+
+static long tft_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
+{
+    int ret = 0;
+    struct tft_color color;
+    
+    /* Check if command is for our driver */
+    if (_IOC_TYPE(cmd) != TFT_IOC_MAGIC) {
+        return -ENOTTY;
+    }
+    
+    switch (cmd) {
+        case TFT_SET_TEXT_COLOR:
+            if (copy_from_user(&color, (struct tft_color*)arg, sizeof(struct tft_color))) {
+                return -EFAULT;
+            }
+            
+            current_text_color = color;
+            
+            printk(KERN_INFO "TFT: Text color set to RGB(%d, %d, %d)\n", 
+                   color.red, color.green, color.blue);
+            break;
+            
+        case TFT_GET_TEXT_COLOR:
+            if (copy_to_user((struct tft_color*)arg, &current_text_color, sizeof(struct tft_color))) {
+                return -EFAULT;
+            }
+            break;
+            
+        case TFT_SET_BG_COLOR:
+            if (copy_from_user(&color, (struct tft_color*)arg, sizeof(struct tft_color))) {
+                return -EFAULT;
+            }
+            
+            current_bg_color = color;
+            /* You would implement background color setting here */
+            
+            printk(KERN_INFO "TFT: Background color set to RGB(%d, %d, %d)\n", 
+                   color.red, color.green, color.blue);
+            break;
+            
+        case TFT_RESET_COLORS:
+            current_text_color = (struct tft_color){0xFF, 0xFF, 0xFF};
+            current_bg_color = (struct tft_color){0x00, 0x00, 0x00};
+            
+            printk(KERN_INFO "TFT: Colors reset to defaults\n");
+            break;
+            
+        default:
+            return -ENOTTY;
+    }
+    
+    return ret;
 }
 
 // In probe function
