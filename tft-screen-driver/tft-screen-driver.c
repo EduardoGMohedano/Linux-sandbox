@@ -11,9 +11,10 @@
 #include <linux/delay.h>
 #include "ra8875.h"
 
-#define DRIVER_NAME     "custom-tft-screen"
-#define DEVICE_NAME     "simple-tft"
-#define CLASS_NAME      "tft_class"
+#define DRIVER_NAME         "custom-tft-screen"
+#define DEVICE_NAME         "simple-tft"
+#define CLASS_NAME          "tft_class"
+#define BOUNCE_INTERVAL     150
 
 /* Color structure for RGB values */
 struct tft_color {
@@ -43,6 +44,11 @@ struct tft_data{
 /* Driver state */
 static struct tft_color current_text_color = {0xFF, 0xFF, 0xFF}; /* Default white */
 static struct tft_color current_bg_color = {0x00, 0x00, 0x00};   /* Default black */
+
+static struct task_struct *bounce_thread;
+static int stop_thread = 0;
+char text_buff[64];
+int text_len;
 
 // File operations prototypes
 static int tft_open(struct inode *inode, struct file *file);
@@ -224,7 +230,7 @@ uint8_t spi_send_read_t(struct spi_device* spi, u8 data, u8 data2){
         return ret;
     }
 
-    pr_info("Received rx data: %02x %02x", data_rx[0], data_rx[1]);
+    // pr_info("Received rx data: %02x %02x", data_rx[0], data_rx[1]);
     return data_rx[1];
 }
 
@@ -374,6 +380,54 @@ void ra8875_set_window(struct spi_device* spi, uint16_t xs, uint16_t xe, uint16_
     ra8875_write_register(spi, RA8875_REG_VEAW1, (uint8_t)(ye >> 8));    // Vertical End Point of Active Window 1 (VEAW1)
 }
 
+
+/*Thread showing text on the screen*/
+static int text_bounce_func(void *ptr_data){
+// static int text_bounce_func(struct tft_data* data){
+    printk(KERN_INFO "Text bounce thread started\n");
+    int position_x = 0;
+    int position_y = 0;
+    int direction_x = 1;
+    int direction_y = 1;
+
+    struct tft_data* data = (struct tft_data*)ptr_data;
+    u16 curr_color = TFT_STRUCT_TO_U16(current_text_color);
+
+    textMode(data->spi);
+    textEnlarge(data->spi, 1);
+    msleep(20); /* let this time pass */
+    
+    while (!kthread_should_stop() && !stop_thread) {
+        //Make screen black and show text
+        fillScreen(data->spi, 0x0000);
+        curr_color = TFT_STRUCT_TO_U16(current_text_color);
+        setCursor(data->spi, position_x, position_y);
+        textTransparent(data->spi, curr_color);
+        textWrite(data->spi, text_buff, text_len);
+        
+        // Sleep for the specified interval
+        printk(KERN_INFO "Text position: (%d:%d)\n", position_x, position_y);
+        msleep(BOUNCE_INTERVAL);
+
+        position_x+=direction_x * 5;
+        position_y+=direction_y * 5;
+        if( position_x + (17*text_len) >= LV_HOR_RES_MAX )
+            direction_x = -1;
+        if( position_x <= 0 )
+            direction_x = 1;
+        if( position_y + 30 >= LV_VER_RES_MAX )
+            direction_y = -1;
+        if( position_y <= 0 )
+            direction_y = 1;
+    }
+    
+    printk(KERN_INFO "Text bounce thread finished\n");
+    
+    return 0;
+}
+
+
+
 // File operations structure
 static struct file_operations tft_fops = {
     .owner = THIS_MODULE,
@@ -458,27 +512,11 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
             return -EFAULT;
         }
         cmd[len] = '\0';
-        u16 curr_color = TFT_STRUCT_TO_U16(current_text_color);
-        pr_info("Writing %s to TFT screen\n", cmd);
 
-        /*text example*/
-        // char text[] = "HELLO WORLD!";
-        textMode(data->spi);
-        msleep(20); /* let this time pass */
-        
-        int screen_position = 10;
-        fillScreen(data->spi, 0x0000);
-        setCursor(data->spi, screen_position*5,screen_position*5);
-        textEnlarge(data->spi, 2);
-        textTransparent(data->spi, curr_color);
-        textWrite(data->spi, cmd, sizeof(cmd));
-        msleep(150); /* let this time pass */
-       
-        /* ret = spi_write(data->spi, &value, 1);
-        if ( ret < 0){
-            pr_err("Something failed during SPI send transaction\n");
-            return ret;
-        }*/
+        memset(text_buff, 0, sizeof(text_buff));
+        memcpy(text_buff, cmd, len); 
+        text_len = len;
+        pr_info("Writing %s to TFT screen\n", text_buff);
     }
 
     return len;
@@ -590,6 +628,13 @@ static int tft_probe(struct spi_device *spi){
         return -1;
     }
 
+    // Create and start the kernel thread
+    bounce_thread = kthread_run(text_bounce_func, (void*)data , "bounce_text_thread");
+    if (IS_ERR(bounce_thread)) {
+        printk(KERN_ERR "Failed to create kernel thread\n");
+        return PTR_ERR(bounce_thread);
+    }
+
     // Allocate device number (device, minor_number, number of devoces, name)
     ret = alloc_chrdev_region(&data->dev_num, 0, 1, DEVICE_NAME);
     if (ret < 0) {
@@ -645,6 +690,14 @@ cleanup_chrdev:
 static void tft_remove(struct spi_device *spi){
     struct tft_data* data = spi_get_drvdata(spi);
     dev_info(&spi->dev, "Custom TFT driver remove started\n");
+
+    
+    // Stop the kernel thread
+    stop_thread = 1;
+    if (bounce_thread) {
+        kthread_stop(bounce_thread);
+        bounce_thread = NULL;
+    }
     
     ra8875_enable_display(data->spi, false);
 
@@ -654,10 +707,11 @@ static void tft_remove(struct spi_device *spi){
         msleep(100);
         gpiod_set_value(data->rst_pin, 1);
         dev_info(&spi->dev, "GPIO set to high before removal\n");
+        /* GPIO needs to be freed manually */
+        gpiod_put(data->rst_pin);
+        data->rst_pin = NULL;
     }
 
-    /* GPIO needs to be freed manually since we got them by using indexes */
-    gpiod_put(data->rst_pin);
 
     // Clean up device
     device_destroy(data->class, data->dev_num);
