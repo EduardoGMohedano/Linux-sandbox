@@ -15,6 +15,7 @@
 #define DEVICE_NAME         "simple-tft"
 #define CLASS_NAME          "tft_class"
 #define BOUNCE_INTERVAL     150
+#define TEXT_STEP_PIXELS    20
 
 /* Color structure for RGB values */
 struct tft_color {
@@ -31,6 +32,7 @@ struct tft_color {
 #define TFT_GET_TEXT_COLOR    _IOR(TFT_IOC_MAGIC, 2, struct tft_color)
 #define TFT_SET_BG_COLOR      _IOW(TFT_IOC_MAGIC, 3, struct tft_color)
 #define TFT_RESET_COLORS      _IO(TFT_IOC_MAGIC, 4)
+#define TFT_SET_TIME_INTER    _IOW(TFT_IOC_MAGIC, 5, int)
 
 struct tft_data{
     dev_t dev_num;
@@ -49,6 +51,7 @@ static struct task_struct *bounce_thread;
 static int stop_thread = 0;
 char text_buff[64];
 int text_len;
+int time_interval = BOUNCE_INTERVAL;
 
 // File operations prototypes
 static int tft_open(struct inode *inode, struct file *file);
@@ -406,11 +409,11 @@ static int text_bounce_func(void *ptr_data){
         textWrite(data->spi, text_buff, text_len);
         
         // Sleep for the specified interval
-        printk(KERN_INFO "Text position: (%d:%d)\n", position_x, position_y);
-        msleep(BOUNCE_INTERVAL);
+        // printk(KERN_INFO "Text position: (%d:%d)\n", position_x, position_y);
+        msleep(time_interval);
 
-        position_x+=direction_x * 5;
-        position_y+=direction_y * 5;
+        position_x+=direction_x * TEXT_STEP_PIXELS;
+        position_y+=direction_y * TEXT_STEP_PIXELS;
         if( position_x + (17*text_len) >= LV_HOR_RES_MAX )
             direction_x = -1;
         if( position_x <= 0 )
@@ -425,8 +428,6 @@ static int text_bounce_func(void *ptr_data){
     
     return 0;
 }
-
-
 
 // File operations structure
 static struct file_operations tft_fops = {
@@ -525,6 +526,7 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
 static long tft_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
     int ret = 0;
+    int time = 100;
     struct tft_color color;
     
     /* Check if command is for our driver */
@@ -569,6 +571,14 @@ static long tft_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
             printk(KERN_INFO "TFT: Colors reset to defaults\n");
             break;
             
+            case TFT_SET_TIME_INTER:
+            if (copy_from_user(&time, (int*)arg, sizeof(int))) {
+                return -EFAULT;
+            }
+            time_interval = time;
+            printk(KERN_INFO "TFT: Time interval set to %dms\n", time_interval);
+            break;
+                
         default:
             return -ENOTTY;
     }
