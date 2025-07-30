@@ -51,6 +51,8 @@ struct tft_data{
 static struct Point draw_area[4] = {0};
 u16 draw_buffer[25];
 u8 draw_buffer8[50];
+u16* draw_d_buffer;
+u8* draw_d_buffer8;
 
 /* Driver state */
 static struct tft_color current_text_color = {31, 0, 31}; /* Default red */
@@ -215,13 +217,13 @@ int spi_send_buff(struct spi_device *spi, u16 *data, int count){
     struct spi_transfer transfer = {0};
     int ret;
     
-    draw_buffer8[0] = 0; //maybe this zero needs to be send separately and assert CS pin first
+    draw_d_buffer8[0] = 0; //maybe this zero needs to be send separately and assert CS pin first
     for(int i = 1; i <= count; i++){
-        draw_buffer8[(2*i)-1] = (u8)(draw_buffer[i] >> 8);
-        draw_buffer8[(2*i)] = (u8)(draw_buffer[i]);
+        draw_d_buffer8[(2*i)-1] = (u8)(draw_d_buffer[i] >> 8);
+        draw_d_buffer8[(2*i)] = (u8)(draw_d_buffer[i]);
     }
     
-    transfer.tx_buf = draw_buffer8;
+    transfer.tx_buf = draw_d_buffer8;
     transfer.len = (count * 2) + 1;  // count * 2 bytes per 16-bit word
     transfer.bits_per_word = 8;
     transfer.speed_hz = spi->max_speed_hz;
@@ -450,14 +452,15 @@ static int text_bounce_func(void *ptr_data){
     while (!kthread_should_stop() && !stop_thread) {
         //Make screen black and show text
         fillScreen(data->spi, 0x0000);
-        // curr_color = TFT_STRUCT_TO_U16(current_text_color);
-        printk(KERN_INFO "Rect positions Start:(%d,%d) End:(%d,%d)\n", position_x, position_y, position_x+4, position_y+4);
-        ra8875_set_window(data->spi, position_x, position_x+4, position_y, position_y+4);        
-        ra8875_set_memory_write_cursor(data->spi, position_x, position_y);
+        // printk(KERN_INFO "Rect positions Start:(%d,%d) End:(%d,%d)\n", position_x, position_y, position_x+4, position_y+4);
+        ra8875_set_window(data->spi, draw_area[0].x, draw_area[3].x, draw_area[0].y, draw_area[3].y);        
+        ra8875_set_memory_write_cursor(data->spi, draw_area[0].x, draw_area[0].y);
 
         writeCommand(data->spi, RA8875_REG_MRWC);
 
-        spi_send_buff(data->spi, draw_buffer, 25);
+        // spi_send_buff(data->spi, draw_buffer, 25);
+        if(draw_d_buffer && draw_d_buffer8)
+            spi_send_buff(data->spi, draw_d_buffer, 25);
 
         // Sleep for the specified interval
         msleep(time_interval);
@@ -538,10 +541,38 @@ static ssize_t tft_read(struct file *file, char __user *buffer, size_t len, loff
     return msg_len;
 }
 
+static int parse_u16_buffer(const char *input_buffer, size_t input_len, u16 *draw_buffer, size_t draw_buffer_size){
+    const char *ptr = input_buffer;
+    const char *end = input_buffer + input_len;
+    size_t count = 0;
+    char num_str[8];
+    int num_idx = 0;
+    
+    while (ptr < end && count < draw_buffer_size) {
+        char c = *ptr++;
+        
+        if (c == ',' || ptr == end) {
+            if (num_idx > 0) {
+                unsigned long val;
+                num_str[num_idx] = '\0';
+                kstrtoul(num_str, 10, &val);
+                draw_buffer[count++] = (u16)val;
+                num_idx = 0;
+            }
+        } else {
+            if (num_idx < sizeof(num_str) - 1) {
+                num_str[num_idx++] = c;
+            }
+        }
+    }
+    
+    return count;
+}
+
 static ssize_t tft_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset)
 {
     struct tft_data* data = NULL;
-    char cmd[128];
+    char cmd[128]; //TODO MAKE THIS BUFFER DYNAMIC
     char first_buff[32];
     int read_s;
 
@@ -579,36 +610,15 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
             sscanf(first_buff, "len=%d", &buffer_size);
             pr_info("Buffer size is %d\n", buffer_size);
 
-            // draw_buffer = (int*) kmalloc(1024, GFP_KERNEL);
-            // if (!draw_buffer) {
-            //     printk(KERN_ERR "Failed to allocate small buffer\n");
-            //     return -ENOMEM;
-            // }
+            draw_d_buffer = (u16*) kmalloc(buffer_size, GFP_KERNEL);
+            draw_d_buffer8 = (u8*) kmalloc(buffer_size*2, GFP_KERNEL);
+            if (!draw_d_buffer || !draw_d_buffer8) {
+                printk(KERN_ERR "Failed to allocate small buffer\n");
+                return -ENOMEM;
+            }
 
-            // //prepare a NEW DRAW BUFFER AND PARSE the new values
+            parse_u16_buffer(cmd, len, draw_d_buffer, buffer_size);
 
-            // char* buffer_copy = strdup(cmd);  // Make a copy since strtok modifies the string
-            // char* token;
-            // char* saveptr;  // For thread-safe strtok_r
-            // int count = 0;
-            
-            // if (buffer_copy == NULL) {
-            //     return -1;  // Memory allocation failed
-            // }
-            
-            // // Use strtok_r
-            // token = strtok_r(buffer_copy, ",", &saveptr);
-            
-            // while (token != NULL && count < buffer_size) {
-            //     // Convert string to integer
-            //     *(draw_buffer+count) = atoi(token);
-            //     count++;
-                
-            //     // Get next token
-            //     token = strtok_r(NULL, ",", &saveptr);
-            // }
-            
-            // free(buffer_copy);
         }
         else{
             sscanf( cmd ,"x1:%d,y1:%d,x2:%d,y2:%d,x3:%d,y3:%d,x4:%d,y4:%d", &draw_area[0].x, &draw_area[0].y, &draw_area[1].x, &draw_area[1].y, &draw_area[2].x, &draw_area[2].y, &draw_area[3].x, &draw_area[3].y);
@@ -784,6 +794,9 @@ static int tft_probe(struct spi_device *spi){
     dev_info(&spi->dev, "SPI max frequency: %dHz\n", spi->max_speed_hz);
     dev_info(&spi->dev, "Device created: /dev/%s \n", DEVICE_NAME);
 
+    draw_d_buffer8 = NULL;
+    draw_d_buffer = NULL;
+
     return 0;
 
 cleanup_class:
@@ -821,6 +834,14 @@ static void tft_remove(struct spi_device *spi){
         data->rst_pin = NULL;
     }
 
+    if(draw_d_buffer){
+        kfree(draw_d_buffer);
+        draw_d_buffer = NULL;
+    }
+    if(draw_d_buffer8){
+        kfree(draw_d_buffer8);
+        draw_d_buffer8 = NULL;
+    }
 
     // Clean up device
     device_destroy(data->class, data->dev_num);
