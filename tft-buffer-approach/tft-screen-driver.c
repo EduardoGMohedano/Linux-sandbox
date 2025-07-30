@@ -242,13 +242,14 @@ int spi_send_buff(struct spi_device *spi, u16 *data, int count){
     struct spi_transfer transfer = {0};
     int ret;
     
-    for(int i = 0; i < count; i++){
-        draw_buffer8[2*i] = (u8)(draw_buffer[i]);
-        draw_buffer8[(2*i)+1] = (u8)(draw_buffer[i] >> 8);
+    draw_buffer8[0] = 0; //maybe this zero needs to be send separately and assert CS pin first
+    for(int i = 1; i <= count; i++){
+        draw_buffer8[(2*i)-1] = (u8)(draw_buffer[i] >> 8);
+        draw_buffer8[(2*i)] = (u8)(draw_buffer[i]);
     }
     
     transfer.tx_buf = draw_buffer8;
-    transfer.len = count * 2;  // count * 2 bytes per 16-bit word
+    transfer.len = (count * 2) + 1;  // count * 2 bytes per 16-bit word
     transfer.bits_per_word = 8;
     transfer.speed_hz = spi->max_speed_hz;
     transfer.cs_change = 0;
