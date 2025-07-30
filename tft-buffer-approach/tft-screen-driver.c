@@ -238,30 +238,18 @@ int send_bulk_spi(struct spi_device *spi, u16 *data, int count){
 }
 
 int spi_send_buff(struct spi_device *spi, u16 *data, int count){
-    struct spi_message msg;
-    struct spi_transfer transfer = {0};
+    // struct spi_message msg;
+    // struct spi_transfer transfer = {0};
     int ret;
     
     for(int i = 0; i < count; i++){
-        draw_buffer8[2*i] = (u8)(draw_buffer[i]);
-        draw_buffer8[(2*i)+1] = (u8)(draw_buffer[i] >> 8);
-    }
-    
-    transfer.tx_buf = draw_buffer8;
-    transfer.len = count * 2;  // count * 2 bytes per 16-bit word
-    transfer.bits_per_word = 8;
-    transfer.speed_hz = spi->max_speed_hz;
-    transfer.cs_change = 0;
-    
-    spi_message_init(&msg);
-    spi_message_add_tail(&transfer, &msg);
-    
-    ret = spi_sync(spi, &msg);
-    if( ret < 0 ){
-        pr_err("SPI send buff transaction failed\n");
-        return ret;
-    }
-    return ret;
+        // draw_buffer8[2*i] = (u8)(draw_buffer[i]);
+        // draw_buffer8[(2*i)+1] = (u8)(draw_buffer[i] >> 8);
+
+        spi_send_t(spi, (u8) draw_buffer[i], (u8)(draw_buffer[i] >> 8));
+    }    
+
+    return 0;
 }
 
 uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2){
