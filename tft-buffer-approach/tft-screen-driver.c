@@ -14,7 +14,7 @@
 #define DRIVER_NAME         "custom-tft-screen"
 #define DEVICE_NAME         "simple-tft"
 #define CLASS_NAME          "tft_class"
-#define BOUNCE_INTERVAL     150
+#define BOUNCE_INTERVAL     350
 #define TEXT_STEP_PIXELS    20
 
 /* Color structure for RGB values */
@@ -49,9 +49,11 @@ struct tft_data{
 };
 
 static struct Point draw_area[4] = {0};
+u16 draw_buffer[25];
+u8 draw_buffer8[50];
 
 /* Driver state */
-static struct tft_color current_text_color = {0xFF, 0xFF, 0xFF}; /* Default white */
+static struct tft_color current_text_color = {31, 0, 31}; /* Default red */
 static struct tft_color current_bg_color = {0x00, 0x00, 0x00};   /* Default black */
 
 static struct task_struct *bounce_thread;
@@ -72,6 +74,7 @@ uint8_t ra8875_init(struct tft_data* data);
 void ra8875_enable_display(struct spi_device* spi, bool enable);
 void ra8875_configure_clocks( struct spi_device* spi, bool high_speed);
 void ra8875_set_window(struct spi_device* spi, uint16_t xs, uint16_t xe, uint16_t ys, uint16_t ye);
+void ra8875_set_memory_write_cursor(struct spi_device* spi, uint16_t x, uint16_t y);
 void configurePWM(struct spi_device* spi, uint8_t pwm_pin, bool enable, uint8_t pwm_clock);
 void PWMout(struct spi_device* spi, uint8_t pwm_pin, uint8_t duty_cycle);
 
@@ -81,6 +84,8 @@ void writeCommand(struct spi_device* spi ,uint8_t d);
 uint8_t readData(struct spi_device* spi);
 void writeData(struct spi_device* spi, uint8_t d);
 uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2);
+int spi_send_buff(struct spi_device *spi, u16 *data, int count);
+int send_bulk_spi(struct spi_device *spi, u16 *data, int count);
 uint8_t spi_send_read_t(struct spi_device* spi, u8 data, u8 data2);
 /*TFT related functions*/
 
@@ -206,6 +211,58 @@ void graphicsMode(struct spi_device* spi) {
 
 /*Native SPI functions*/
 
+int send_bulk_spi(struct spi_device *spi, u16 *data, int count){
+    struct spi_message msg;
+    struct spi_transfer *transfers;
+    int i, ret;
+    
+    transfers = kcalloc(count, sizeof(struct spi_transfer), GFP_KERNEL);
+    if (!transfers)
+        return -ENOMEM;
+    
+    spi_message_init(&msg);
+    
+    for (i = 0; i < count; i++) {
+        transfers[i].tx_buf = &data[i];
+        transfers[i].len = 2;  // 16 bits = 2 bytes
+        transfers[i].bits_per_word = 16;
+        transfers[i].speed_hz = spi->max_speed_hz;
+        
+        spi_message_add_tail(&transfers[i], &msg);
+    }
+    
+    ret = spi_sync(spi, &msg);
+    
+    kfree(transfers);
+    return ret;
+}
+
+int spi_send_buff(struct spi_device *spi, u16 *data, int count){
+    struct spi_message msg;
+    struct spi_transfer transfer = {0};
+    int ret;
+    
+    for(int i = 0; i < count; i++){
+        draw_buffer8[2*i] = (u8)(draw_buffer[i]);
+        draw_buffer8[(2*i)+1] = (u8)(draw_buffer[i] >> 8);
+    }
+    
+    transfer.tx_buf = draw_buffer8;
+    transfer.len = count * 2;  // count * 2 bytes per 16-bit word
+    transfer.bits_per_word = 8;
+    transfer.speed_hz = spi->max_speed_hz;
+    transfer.cs_change = 0;
+    
+    spi_message_init(&msg);
+    spi_message_add_tail(&transfer, &msg);
+    
+    ret = spi_sync(spi, &msg);
+    if( ret < 0 ){
+        pr_err("SPI send buff transaction failed\n");
+        return ret;
+    }
+    return ret;
+}
 
 uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2){
     u8 data_buff[2] = {data, data2};
@@ -390,32 +447,45 @@ void ra8875_set_window(struct spi_device* spi, uint16_t xs, uint16_t xe, uint16_
     ra8875_write_register(spi, RA8875_REG_VEAW1, (uint8_t)(ye >> 8));    // Vertical End Point of Active Window 1 (VEAW1)
 }
 
+// Used to set the cursor at certain position
+void ra8875_set_memory_write_cursor(struct spi_device* spi, uint16_t x, uint16_t y){
+    ra8875_write_register(spi, RA8875_REG_CURH0, (uint8_t)(x & 0x00FF));  // Memory Write Cursor Horizontal Position Register 0 (CURH0)
+    ra8875_write_register(spi, RA8875_REG_CURH1, (uint8_t)(x >> 8));     // Memory Write Cursor Horizontal Position Register 1 (CURH1)
+    ra8875_write_register(spi, RA8875_REG_CURV0, (uint8_t)(y & 0x00FF));  // Memory Write Cursor Vertical Position Register 0 (CURV0)
+    ra8875_write_register(spi, RA8875_REG_CURV1, (uint8_t)(y >> 8));     // Memory Write Cursor Vertical Position Register 1 (CURV1)
+}
+
 
 /*Thread showing text on the screen*/
 static int text_bounce_func(void *ptr_data){
 // static int text_bounce_func(struct tft_data* data){
-    printk(KERN_INFO "Text bounce thread started\n");
+    printk(KERN_INFO "Rectangle bounce thread started\n");
     int position_x = 0;
     int position_y = 0;
     int direction_x = 1;
     int direction_y = 1;
 
     struct tft_data* data = (struct tft_data*)ptr_data;
-    u16 curr_color = TFT_STRUCT_TO_U16(current_text_color);
-
+    
+    for(int i = 0; i < 25; i++)
+        draw_buffer[i] = (u16)TFT_STRUCT_TO_U16(current_text_color);
+        
     graphicsMode(data->spi);
     msleep(20); /* let this time pass */
     
     while (!kthread_should_stop() && !stop_thread) {
         //Make screen black and show text
         fillScreen(data->spi, 0x0000);
-        curr_color = TFT_STRUCT_TO_U16(current_text_color);
-        setCursor(data->spi, position_x, position_y);
-        textTransparent(data->spi, curr_color);
-        textWrite(data->spi, text_buff, text_len);
-        
+        // curr_color = TFT_STRUCT_TO_U16(current_text_color);
+        printk(KERN_INFO "Rect positions Start:(%d,%d) End:(%d,%d)\n", position_x, position_y, position_x+4, position_y+4);
+        ra8875_set_window(data->spi, position_x, position_x+4, position_y, position_y+4);        
+        ra8875_set_memory_write_cursor(data->spi, position_x, position_y);
+
+        writeCommand(data->spi, RA8875_REG_MRWC);
+
+        spi_send_buff(data->spi, draw_buffer, 25);
+
         // Sleep for the specified interval
-        // printk(KERN_INFO "Text position: (%d:%d)\n", position_x, position_y);
         msleep(time_interval);
 
         position_x+=direction_x * TEXT_STEP_PIXELS;
@@ -430,7 +500,7 @@ static int text_bounce_func(void *ptr_data){
             direction_y = 1;
     }
     
-    printk(KERN_INFO "Text bounce thread finished\n");
+    printk(KERN_INFO "Rectangle bounce thread finished\n");
     
     return 0;
 }
@@ -498,6 +568,8 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
 {
     struct tft_data* data = NULL;
     char cmd[128];
+    char first_buff[32];
+    int read_s;
 
     if (len >= sizeof(cmd)) {
         return -EINVAL;
@@ -519,15 +591,54 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
             return -EFAULT;
         }
         cmd[len] = '\0';
+        
+        if( strncmp(cmd,"len", 3) == 0 ){
+            //Receive buffer data
+            // char *first_comma = strchr(cmd, ',');
+            // if(!first_comma)
+            //     return 0;
+                
+            // read_s = first_comma - cmd;  
+            // first_buff[read_s+1] = '\0';
+            // memcpy(first_buff, cmd, read_s);
+            // int buffer_size = 0;
+            // sscanf(first_buff, "len=%d", &buffer_size);
 
-        pr_info("before read raw area \n");
-        sscanf( cmd ,"x1:%d,y1:%d,x2:%d,y2:%d,x3:%d,y3:%d,x4:%d,y4:%d", &draw_area[0].x, &draw_area[0].y, &draw_area[1].x, &draw_area[1].y, &draw_area[2].x, &draw_area[2].y, &draw_area[3].x, &draw_area[3].y);
-        pr_info("after read raw area \n");
+            // draw_buffer = (int*) kmalloc(1024, GFP_KERNEL);
+            // if (!draw_buffer) {
+            //     printk(KERN_ERR "Failed to allocate small buffer\n");
+            //     return -ENOMEM;
+            // }
 
-        // memset(text_buff, 0, sizeof(text_buff));
-        // memcpy(text_buff, cmd, len); 
-        // text_len = len;
-        pr_info("x1:%d,y1:%d,x2:%d,y2:%d,x3:%d,y3:%d,x4:%d,y4:%d\n", draw_area[0].x, draw_area[0].y, draw_area[1].x, draw_area[1].y, draw_area[2].x, draw_area[2].y, draw_area[3].x, draw_area[3].y);
+            // //prepare a NEW DRAW BUFFER AND PARSE the new values
+
+            // char* buffer_copy = strdup(cmd);  // Make a copy since strtok modifies the string
+            // char* token;
+            // char* saveptr;  // For thread-safe strtok_r
+            // int count = 0;
+            
+            // if (buffer_copy == NULL) {
+            //     return -1;  // Memory allocation failed
+            // }
+            
+            // // Use strtok_r
+            // token = strtok_r(buffer_copy, ",", &saveptr);
+            
+            // while (token != NULL && count < buffer_size) {
+            //     // Convert string to integer
+            //     *(draw_buffer+count) = atoi(token);
+            //     count++;
+                
+            //     // Get next token
+            //     token = strtok_r(NULL, ",", &saveptr);
+            // }
+            
+            // free(buffer_copy);
+        }
+        else{
+            sscanf( cmd ,"x1:%d,y1:%d,x2:%d,y2:%d,x3:%d,y3:%d,x4:%d,y4:%d", &draw_area[0].x, &draw_area[0].y, &draw_area[1].x, &draw_area[1].y, &draw_area[2].x, &draw_area[2].y, &draw_area[3].x, &draw_area[3].y);
+            pr_info("x1:%d,y1:%d,x2:%d,y2:%d,x3:%d,y3:%d,x4:%d,y4:%d\n", draw_area[0].x, draw_area[0].y, draw_area[1].x, draw_area[1].y, draw_area[2].x, draw_area[2].y, draw_area[3].x, draw_area[3].y);
+        }
     }
 
     return len;
@@ -552,8 +663,11 @@ static long tft_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
             
             current_text_color = color;
             
-            printk(KERN_INFO "TFT: Text color set to RGB(%d, %d, %d)\n", 
-                   color.red, color.green, color.blue);
+            printk(KERN_INFO "TFT: Text color set to RGB(%d, %d, %d) u16(%d)\n", color.red, color.green, color.blue, TFT_STRUCT_TO_U16(current_text_color));
+            printk(KERN_INFO "TFT: Text color set to RGB(%d, %d, %d) u16(%d)\n", current_text_color.red, current_text_color.green, current_text_color.blue, TFT_STRUCT_TO_U16(current_text_color));
+            for(int i = 0; i < 25; i++)
+                draw_buffer[i] = (u16)TFT_STRUCT_TO_U16(current_text_color);
+
             break;
             
         case TFT_GET_TEXT_COLOR:
