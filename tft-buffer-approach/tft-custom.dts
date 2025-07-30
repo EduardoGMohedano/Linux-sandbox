@@ -1,0 +1,44 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711";
+
+    fragment@0 {
+        target = <&spi0>;
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+            pinctrl-names = "default";
+            pinctrl-0 = <&spi0_pins>;
+
+            tft_display: tft@0 {
+                compatible = "raio,raio8875";
+                reg = <0>;
+                spi-max-frequency = <8000000>;
+                status = "okay";
+                
+                /* GPIO 23 as output for display control */
+                rst-gpios = <&gpio 23 0>;
+            };
+        };
+    };
+
+    fragment@1 {
+        target = <&gpio>;
+        __overlay__ {
+            spi0_pins: spi0_pins {
+                brcm,pins = <8 9 10 11>;
+                brcm,function = <4>; /* ALT0 */
+                brcm,pull = <0>; /* No pull */
+            };
+
+            tft_pins: tft_pins {
+                brcm,pins = <23>;
+                brcm,function = <1>; /* Output */
+                brcm,pull = <0>; /* No pull */
+            };
+        };
+    };
+};
