@@ -85,7 +85,6 @@ uint8_t readData(struct spi_device* spi);
 void writeData(struct spi_device* spi, uint8_t d);
 uint8_t spi_send_t(struct spi_device* spi, uint8_t data, uint8_t data2);
 int spi_send_buff(struct spi_device *spi, u16 *data, int count);
-int send_bulk_spi(struct spi_device *spi, u16 *data, int count);
 uint8_t spi_send_read_t(struct spi_device* spi, u8 data, u8 data2);
 /*TFT related functions*/
 
@@ -210,32 +209,6 @@ void graphicsMode(struct spi_device* spi) {
 }
 
 /*Native SPI functions*/
-
-int send_bulk_spi(struct spi_device *spi, u16 *data, int count){
-    struct spi_message msg;
-    struct spi_transfer *transfers;
-    int i, ret;
-    
-    transfers = kcalloc(count, sizeof(struct spi_transfer), GFP_KERNEL);
-    if (!transfers)
-        return -ENOMEM;
-    
-    spi_message_init(&msg);
-    
-    for (i = 0; i < count; i++) {
-        transfers[i].tx_buf = &data[i];
-        transfers[i].len = 2;  // 16 bits = 2 bytes
-        transfers[i].bits_per_word = 16;
-        transfers[i].speed_hz = spi->max_speed_hz;
-        
-        spi_message_add_tail(&transfers[i], &msg);
-    }
-    
-    ret = spi_sync(spi, &msg);
-    
-    kfree(transfers);
-    return ret;
-}
 
 int spi_send_buff(struct spi_device *spi, u16 *data, int count){
     struct spi_message msg;
@@ -595,15 +568,16 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
         
         if( strncmp(cmd,"len", 3) == 0 ){
             //Receive buffer data
-            // char *first_comma = strchr(cmd, ',');
-            // if(!first_comma)
-            //     return 0;
+            char *first_comma = strchr(cmd, ',');
+            if(!first_comma)
+                return 0;
                 
-            // read_s = first_comma - cmd;  
-            // first_buff[read_s+1] = '\0';
-            // memcpy(first_buff, cmd, read_s);
-            // int buffer_size = 0;
-            // sscanf(first_buff, "len=%d", &buffer_size);
+            read_s = first_comma - cmd;  
+            first_buff[read_s+1] = '\0';
+            memcpy(first_buff, cmd, read_s);
+            int buffer_size = 0;
+            sscanf(first_buff, "len=%d", &buffer_size);
+            pr_info("Buffer size is %d\n", buffer_size);
 
             // draw_buffer = (int*) kmalloc(1024, GFP_KERNEL);
             // if (!draw_buffer) {

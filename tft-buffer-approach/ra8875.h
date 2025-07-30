@@ -155,7 +155,7 @@
 
 #define HNDFT (CONFIG_LV_DISP_RA8875_HORI_NON_DISP_PERIOD-(8*HNDR_VAL)-12)
 
-#if LVGL_DISP_RA8875_DE_POLARITY   //Set to make data being enabled on low or high
+#if defined LVGL_DISP_RA8875_DE_POLARITY   //Set to make data being enabled on low or high
     #define HNDFTR_VAL (0x80 | HNDFT)
 #else
     #define HNDFTR_VAL (HNDFT)
@@ -165,7 +165,7 @@
 #define CONFIG_LV_DISP_RA8875_HSYNC_PW      96
 #define HSTR_VAL (CONFIG_LV_DISP_RA8875_HSYNC_START/8 - 1) //used to configure start position of hsync
 #define HPW (CONFIG_LV_DISP_RA8875_HSYNC_PW/8 - 1)          //used to configure hsync pulse
-#if LVGL_DISP_RA8875_HSYNC_POLARITY
+#if defined LVGL_DISP_RA8875_HSYNC_POLARITY
     #define HPWR_VAL (0x80 | HPW)
 #else
     #define HPWR_VAL (HPW)
@@ -178,7 +178,7 @@
 #define VNDR_VAL (CONFIG_LV_DISP_RA8875_VERT_NON_DISP_PERIOD - 1)
 #define VSTR_VAL (CONFIG_LV_DISP_RA8875_VSYNC_START - 1)
 #define VPW (CONFIG_LV_DISP_RA8875_VSYNC_PW - 1)
-#if LVGL_DISP_RA8875_VSYNC_POLARITY
+#if defined LVGL_DISP_RA8875_VSYNC_POLARITY
     #define VPWR_VAL (0x80 | VPW)
 #else
     #define VPWR_VAL (VPW)
