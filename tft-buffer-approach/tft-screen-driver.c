@@ -572,7 +572,7 @@ static int parse_u16_buffer(const char *input_buffer, size_t input_len, u16 *dra
 static ssize_t tft_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset)
 {
     struct tft_data* data = NULL;
-    char cmd[128]; //TODO MAKE THIS BUFFER DYNAMIC
+    char cmd[200]; //TODO MAKE THIS BUFFER DYNAMIC
     char first_buff[32];
     int read_s;
 
@@ -598,6 +598,7 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
         cmd[len] = '\0';
         
         if( strncmp(cmd,"len", 3) == 0 ){
+            pr_info("Received buffer cmd\n");
             //Receive buffer data
             char *first_comma = strchr(cmd, ',');
             if(!first_comma)
