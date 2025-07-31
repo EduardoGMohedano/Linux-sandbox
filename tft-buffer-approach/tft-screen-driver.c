@@ -49,10 +49,9 @@ struct tft_data{
 };
 
 static struct Point draw_area[4] = {0};
-u16 draw_buffer[25];
-u8 draw_buffer8[50];
 u16* draw_d_buffer;
 u8* draw_d_buffer8;
+int buffer_size = 0;
 
 /* Driver state */
 static struct tft_color current_text_color = {31, 0, 31}; /* Default red */
@@ -442,9 +441,6 @@ static int text_bounce_func(void *ptr_data){
     int direction_y = 1;
 
     struct tft_data* data = (struct tft_data*)ptr_data;
-    
-    for(int i = 0; i < 25; i++)
-        draw_buffer[i] = (u16)TFT_STRUCT_TO_U16(current_text_color);
         
     graphicsMode(data->spi);
     msleep(20); /* let this time pass */
@@ -458,9 +454,8 @@ static int text_bounce_func(void *ptr_data){
 
         writeCommand(data->spi, RA8875_REG_MRWC);
 
-        // spi_send_buff(data->spi, draw_buffer, 25);
         if(draw_d_buffer && draw_d_buffer8)
-            spi_send_buff(data->spi, draw_d_buffer, 25);
+            spi_send_buff(data->spi, draw_d_buffer, buffer_size);
 
         // Sleep for the specified interval
         msleep(time_interval);
@@ -572,7 +567,7 @@ static int parse_u16_buffer(const char *input_buffer, size_t input_len, u16 *dra
 static ssize_t tft_write(struct file *file, const char __user *buffer, size_t len, loff_t *offset)
 {
     struct tft_data* data = NULL;
-    char cmd[200]; //TODO MAKE THIS BUFFER DYNAMIC
+    char cmd[400]; //TODO MAKE THIS BUFFER DYNAMIC
     char first_buff[32];
     int read_s;
 
@@ -607,12 +602,11 @@ static ssize_t tft_write(struct file *file, const char __user *buffer, size_t le
             read_s = first_comma - cmd;  
             first_buff[read_s+1] = '\0';
             memcpy(first_buff, cmd, read_s);
-            int buffer_size = 0;
             sscanf(first_buff, "len=%d", &buffer_size);
             pr_info("Buffer size is %d\n", buffer_size);
 
             draw_d_buffer = (u16*) kmalloc(buffer_size, GFP_KERNEL);
-            draw_d_buffer8 = (u8*) kmalloc(buffer_size*2, GFP_KERNEL);
+            draw_d_buffer8 = (u8*) kmalloc((buffer_size*2)+1, GFP_KERNEL);
             if (!draw_d_buffer || !draw_d_buffer8) {
                 printk(KERN_ERR "Failed to allocate small buffer\n");
                 return -ENOMEM;
@@ -649,11 +643,7 @@ static long tft_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
             
             current_text_color = color;
             
-            printk(KERN_INFO "TFT: Text color set to RGB(%d, %d, %d) u16(%d)\n", color.red, color.green, color.blue, TFT_STRUCT_TO_U16(current_text_color));
             printk(KERN_INFO "TFT: Text color set to RGB(%d, %d, %d) u16(%d)\n", current_text_color.red, current_text_color.green, current_text_color.blue, TFT_STRUCT_TO_U16(current_text_color));
-            for(int i = 0; i < 25; i++)
-                draw_buffer[i] = (u16)TFT_STRUCT_TO_U16(current_text_color);
-
             break;
             
         case TFT_GET_TEXT_COLOR:
