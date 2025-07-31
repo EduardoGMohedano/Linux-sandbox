@@ -1,0 +1,1 @@
+This approach although it is working seems to be an awful one since it needs to receive all framebuffer as string, convert it to decimal, swap bytes and then, send it to the TFT screen
